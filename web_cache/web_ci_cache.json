@@ -1,0 +1,1 @@
+{"B": 500, "L": 6, "level": 0.95, "features": ["Temp_last", "Solar_mean_7d", "DOY_sin", "Flow_mean_3d", "SPI30d_gamma", "Dry_days_lt1mm", "TOC_last"], "first": "2020-01-01", "last": "2026-09-30", "excel": "common_data_13cols.xlsx", "excel_mtime": 1795422054, "model_sha256": "c6e783f9b71323ef4cd3e37c50ff9efbbbd9ea789797c735210e743fd72df8b2"}

@@ -1,0 +1,39 @@
+{
+  "features": [
+    "Temp_last",
+    "Solar_mean_7d",
+    "DOY_sin",
+    "Flow_mean_3d",
+    "SPI30d_gamma",
+    "Dry_days_lt1mm",
+    "TOC_last"
+  ],
+  "threshold": 0.3359854221343994,
+  "params": {
+    "n_estimators": 160,
+    "max_depth": 2,
+    "learning_rate": 0.035,
+    "min_child_weight": 5,
+    "reg_lambda": 6.0,
+    "subsample": 0.85,
+    "colsample_bytree": 0.85,
+    "objective": "binary:logistic",
+    "eval_metric": "logloss",
+    "tree_method": "hist",
+    "random_state": 42,
+    "n_jobs": 1
+  },
+  "training_period": "2016-2023",
+  "training_n": 445,
+  "test_period": "2026-01-01 to 2026-09-30",
+  "selection": "2020-2023 rolling OOF; reproduced before 2026 predictions",
+  "n_boot": 500,
+  "block_size": 6,
+  "score_note": "uncalibrated model score, not event probability",
+  "source_code_sha256": "8b467b914f97c3c1b507fc06a529002b8e316a2b13af65b50025180506a6646c",
+  "data_sha256": "a5b8e857d20f46971a371b08622384115d205c5c755df17d6b344c34328dccc2",
+  "model_sha256": "c6e783f9b71323ef4cd3e37c50ff9efbbbd9ea789797c735210e743fd72df8b2",
+  "frozen_at": "2026-11-23T17:21:45.460765",
+  "previous_run_threshold": 0.35187217593193054,
+  "threshold_reproduction_note": "Current supplied code on 2016-2023 yields 0.335985; previous run yielded 0.351872. Current result frozen before test. Historical inputs and labels match."
+}
