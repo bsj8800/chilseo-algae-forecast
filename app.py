@@ -310,7 +310,9 @@ def load_or_build_ci():
     p_csv, p_key = os.path.join(CACHE_DIR, "web_ci_cache.csv"), os.path.join(CACHE_DIR, "web_ci_cache.json")
     if os.path.exists(p_csv) and os.path.exists(p_key):
         try:
-            if json.load(open(p_key, encoding="utf-8")) == key:
+            old = json.load(open(p_key, encoding="utf-8"))
+            same = lambda k_: {k: v for k, v in k_.items() if k != "excel_mtime"}   # 업로드·복사로 바뀌는 수정시각은 비교에서 제외
+            if same(old) == same(key):
                 c = pd.read_csv(p_csv, parse_dates=["date"]).set_index("date")
                 return c
         except Exception:
