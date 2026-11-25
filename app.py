@@ -21,6 +21,9 @@
   - 2024~2025 실측은 기본으로 숨기고, 켜더라도 참고용임을 밝힌다.
   - 공식 조류경보가 아니라 연구 시연임을 화면에 밝힌다.
 
+웹 피드백 반영(2026-11-25): 3일 전 선제 대응 매뉴얼(MBB 3단계) · 원인별 한 줄 처방(SHAP) · 메인 3상태 표시 ·
+  윌슨 오경보율 요약 문구 · 결측 표시 통일("평가 불가") · 경보 기준 표기 0.336 통일
+
 실행: streamlit run app.py  (또는 VS Code ▶)
 같은 폴더: app.py, final_original.py, test.py, common_data_13cols.xlsx, (test.py 결과) frozen_model.json · frozen_config.json · test_predictions.csv · test_metrics.csv
 """
@@ -286,6 +289,13 @@ PERIOD_NOTE = {
 PERIOD_BADGE = {"oof": ("검증", "#E8F7EE", "#1A7F45"), "reference": ("참고", "#F2F4F6", "#6B7684"),
                 "test": ("독립 테스트", "#F3EEFF", "#6B3FD4"), "insample": ("학습", "#FFF4E5", "#B26A00")}
 
+# 3단계 (이동 블록 부트스트랩 95% 구간 [L, U] 과 경보 기준의 위치로 결정)
+STAGE_STYLE = {
+    1: dict(ico="🟢", name="안정 유지", act="일상 모니터링 유지", fg="#1A7F45", bg="#E8F7EE", dot="#16A34A"),
+    2: dict(ico="🟡", name="판정 경계", act="사전 현장 채수 권장", fg="#B26A00", bg="#FFF4E5", dot="#F59E0B"),
+    3: dict(ico="🔴", name="고확신 경보", act="선제 대응 필요", fg="#B4232F", bg="#FFEEF0", dot="#F04452"),
+}
+
 
 # ------------------------------------------------------------------
 # 신뢰도: 이동 블록 부트스트랩 95% 원점수 구간 (확정 알고리즘 fit_mbb_predict 그대로 사용)
@@ -358,6 +368,115 @@ def confidence(risk, band):
         return None
     lo, hi = band
     return (lo > THR) if risk else (hi < THR)
+
+
+def stage_of(band):
+    """95% 구간 [L, U] 과 경보 기준: U < 기준 → 1단계 · L > 기준 → 3단계 · 걸치면 2단계 · 구간이 없으면 None(평가 불가)."""
+    if band is None:
+        return None
+    lo, hi = band
+    if hi < THR:
+        return 1
+    if lo > THR:
+        return 3
+    return 2
+
+
+# 원인별 중점 확인 사항: 양(+)의 SHAP 이 가장 큰 변수의 묶음에 따라 한 줄을 바꾼다 (계절 변수는 해당 문구가 없어 건너뜀)
+DRIVERS = [
+    ({"SPI30d_gamma", "Dry_days_lt1mm", "Flow_mean_3d"}, "가뭄·저유량 주도형", "🏜️",
+     "무강우 지속과 저유량으로 수체 체류시간이 길어진 상태입니다. 취수구 인근 정체 수역의 국지적 녹조 집적을 우선 점검하고, "
+     "보·댐 방류 연계 일정을 확인하세요."),
+    ({"TOC_last", "TOC_state_mean_7d"}, "유기물 농축 주도형", "🧪",
+     "유기물(TOC) 농도가 위험 신호를 밀어 올리고 있습니다. 원수 유기물 부하 증가에 따른 정수 공정 소독부산물(DBPs) 및 "
+     "맛·냄새 물질 대응(PAC 투입)을 사전 검토하세요."),
+    ({"Temp_last", "Solar_mean_7d"}, "고수온·강일사 주도형", "☀️",
+     "높은 수온과 강한 일사량으로 표층 남조류 증식이 유리한 조건입니다. 표층 집적을 피하기 위한 취수 수심 조정(심층 취수) "
+     "전환을 검토하세요."),
+]
+
+
+def pick_driver(contrib):
+    """양의 SHAP 이 큰 순서로 보고, 처방 문구가 있는 첫 변수를 돌려준다. 없으면 None."""
+    for i in np.argsort(-np.asarray(contrib, float)):
+        if contrib[i] <= 0:
+            break
+        f = FEATS[i]
+        for group, title, ico, text in DRIVERS:
+            if f in group:
+                return f, title, ico, text, float(contrib[i])
+    return None
+
+
+def manual_html(stage):
+    """3일 전 선제 대응 매뉴얼 카드 3장. 현재 단계만 진하게 표시한다."""
+    cards = [
+        (1, "1단계 · 일상 모니터링 유지", f"고확신 안전 · 상한 U &lt; {THR_TXT}",
+         "3일 내 녹조 위험 진입 가능성이 낮습니다.",
+         ["정기 주간 채수 일정 유지", "추가 약품 투입 불필요"]),
+        (2, "2단계 · 사전 확인 및 현장 채수 권고", f"판정 경계 · L ≤ {THR_TXT} ≤ U (MBB 완충 구간)",
+         "점수가 기준선 부근에 걸쳐 있어 표본 변동에 따라 판정이 바뀔 수 있습니다. 선제 약품 투입 전 현장 확인이 필요한 경계 구간입니다.",
+         ["칠서 취수구 우선 채수 및 간이 검경 실시",
+          "24시간 수온·유량 추이 집중 관찰 (오경보로 인한 불필요한 정수처리 비용 낭비 방지)"]),
+        (3, "3단계 · 3일 선행 대응 태세 가동", f"고확신 경보 · 하한 L &gt; {THR_TXT}",
+         "3일 뒤 남조류 위험 상태(≥ 1,000 cells/mL) 진입이 유력합니다. 공식 경보 발령 전 골든타임을 활용해 선제 대응을 준비하세요.",
+         ["취수구 조류 차단막 및 선택취수(심층 취수) 설비 점검",
+          "분말활성탄(PAC) 및 오존 고도정수처리 약품 재고·투입량 사전 산정", "수질 모니터링 주기 단축"]),
+    ]
+    out = []
+    for n, title, cond, msg, checks in cards:
+        st_ = STAGE_STYLE[n]
+        on = stage == n
+        sty = (f"background:{st_['bg']}; border:2px solid {st_['fg']};" if on else
+               "background:#fff; border:2px solid transparent; opacity:.55;")
+        now = (f'<span class="chip" style="background:#fff; color:{st_["fg"]};">현재 단계</span>' if on else "")
+        li = "".join(f'<li style="margin:3px 0;">{c}</li>' for c in checks)
+        out.append(f'<div class="card" style="{sty} margin-bottom:0; display:flex; flex-direction:column; gap:8px;">'
+                   f'<div style="display:flex; justify-content:space-between; align-items:center; gap:8px;">'
+                   f'<div class="ctitle" style="margin:0; color:{st_["fg"]};">{st_["ico"]} {title}</div>{now}</div>'
+                   f'<div class="label">{cond}</div>'
+                   f'<div style="font-size:14.5px; font-weight:700; line-height:1.5;">{msg}</div>'
+                   f'<div class="label" style="margin-top:4px;">현장 체크리스트</div>'
+                   f'<ul style="margin:0; padding-left:18px; font-size:13.5px; color:#4E5968; line-height:1.55;">{li}</ul></div>')
+    note = ""
+    if stage is None:
+        note = ('<div class="note">이 날짜는 95% 신뢰 범위를 계산할 수 없어 단계는 <b>평가 불가</b>예요.</div>')
+    return ('<div class="gridn" style="grid-template-columns: repeat(3, 1fr); align-items:stretch;">' + "".join(out) +
+            "</div>" + note +
+            '<div class="note">연구 시연용 제안 매뉴얼이에요. 단계는 이동 블록 부트스트랩 95% 범위 [L, U] 와 경보 기준의 위치로 정하며, '
+            '실제 정수장 운영 기준이나 공식 조류경보가 아니에요.</div>')
+
+
+def driver_html(drv, x):
+    if drv is None:
+        body = ("위험을 높이는 요인이 특정 변수 하나로 두드러지지 않았어요(계절 요인 등). 위 단계별 체크리스트를 우선 따르세요.")
+        head, ico, vtxt = "원인별 중점 확인 사항", "🔎", ""
+    else:
+        f, title, ico, body, _ = drv
+        name, unit, _, _ = INFO.get(f, (f, "", "", ""))
+        head, vtxt = f"오늘의 원인별 중점 확인 사항 · {title}", f' <span style="color:{SUB}">· 가장 크게 기여한 변수: {name} {fmt(x[f], unit)}</span>'
+    return (f'<div class="card" style="margin-top:14px; margin-bottom:0;"><div class="row" style="padding:2px 0;">'
+            f'<div class="ico">{ico}</div><div><div class="t">{head}{vtxt}</div>'
+            f'<div class="s" style="font-size:14px; color:#4E5968; margin-top:6px; line-height:1.6;">{body}</div></div></div>'
+            f'<div class="note" style="margin-top:8px;">‘이렇게 판단했어요’에서 위험을 가장 크게 높인(양의 SHAP) 변수를 기준으로 자동 선택해요. '
+            f'SHAP은 모델 내부의 예측 기여이며 인과관계 증명이 아니에요.</div></div>')
+
+
+def _cell(v, na):
+    if v is None or (isinstance(v, (float, np.floating)) and np.isnan(v)):
+        return na
+    if isinstance(v, (int, float, np.integer, np.floating)):
+        return str(int(v)) if float(v).is_integer() else f"{v:.3f}".rstrip("0").rstrip(".")
+    return str(v)
+
+
+def clean_df(df, na="평가 불가"):
+    """표의 빈 값(None·NaN)을 '평가 불가'로 바꿔 보여준다."""
+    out = df.copy()
+    for c in out.columns:
+        if out[c].isna().any():
+            out[c] = [_cell(v, na) for v in out[c]]
+    return out.replace({"None": na, "nan": na, "NaN": na})
 
 
 def wilson(k, n, z=1.959964):
@@ -441,11 +560,9 @@ def level_word(f, v, dev):
     return hi_t if v > hi else lo_t if v < lo else mid_t
 
 
-def render_map(x, risk, target):
+def render_map(x, col, status, target):
     """한글 지명이 나오는 OpenStreetMap 위에 지점 카드를 올린 지도 (Leaflet)."""
     hub = STATIONS["칠서"]
-    col = RED if risk else BLUE
-    status = "위험 기준 초과 예상" if risk else "위험 기준 미만 예상"
     marks = []
     for name, stn in STATIONS.items():
         vals = [f"{INFO[f][0]} {fmt(x[f], INFO[f][1])}" for f in FEATS if f in INFO and INFO[f][2] == name]
@@ -573,6 +690,7 @@ if not (os.path.exists(MODEL_FILE) and os.path.exists(CONFIG_FILE)):
 
 cfg, model = load_model(os.path.getmtime(MODEL_FILE))
 FEATS, THR = cfg["features"], float(cfg["threshold"])
+THR_TXT = f"{THR:.3f}"   # 화면 표기용 (0.336)
 daily, spi, full, dev = load_raw(xlsx)
 FOLDS = fold_models(xlsx, list(FEATS))
 SHOW_FROM = pd.Timestamp("2020-01-01")   # 2016~2019는 최종 모델의 학습 결과라 선택 불가
@@ -670,18 +788,27 @@ with tab_main:
     bg, fg, accent = ("#FFEEF0", "#B4232F", RED) if risk else ("#E8F3FF", "#1B64DA", BLUE)
     band = ci_of(target)
     conf = confidence(risk, band)
+    stage = stage_of(band)
+    sst = STAGE_STYLE.get(stage)
+    map_col = sst["dot"] if sst else (RED if risk else BLUE)
+    map_status = f"{sst['name']} · {sst['act']}" if sst else ("위험 기준 초과 예상" if risk else "위험 기준 미만 예상")
     obs_visible = kind != "reference" or show_recent_obs
     obs_val = daily["Cyano"].get(target, np.nan) if "Cyano" in daily.columns else np.nan
 
     # ===== 1줄: 지도 | 결과 + 판단 근거 (높이를 맞춤) =====
     col_map, col_info = st.columns([1.55, 1], gap="large")
     with col_map:
-        components.html(render_map(x, risk, target), height=770)
+        components.html(render_map(x, map_col, map_status, target), height=770)
 
     with col_info:
-        headline = "녹조 위험 기준을<br>넘을 것 같아요" if risk else "녹조 위험 기준을<br>넘지 않을 것 같아요"
-        chip_bg = "#FFEEF0" if risk else "#E8F3FF"
-        status = "위험 기준 초과 예상" if risk else "위험 기준 미만 예상"
+        if sst:   # 고확신 경보 / 판정 경계 / 안정 유지
+            headline = {3: "고확신 경보<br>선제 대응이 필요해요", 2: "판정 경계<br>사전 현장 채수를 권해요",
+                        1: "안정 유지<br>기준을 넘지 않을 것 같아요"}[stage]
+            chip_bg, chip_fg, fg = sst["bg"], sst["fg"], sst["fg"]
+        else:
+            headline = "녹조 위험 기준을<br>넘을 것 같아요" if risk else "녹조 위험 기준을<br>넘지 않을 것 같아요"
+            chip_bg, chip_fg = ("#FFEEF0" if risk else "#E8F3FF"), accent
+        status = map_status
         b_txt, b_bg, b_fg = PERIOD_BADGE[kind]
         badges = f'<span class="chip" style="background:{b_bg}; color:{b_fg};">{b_txt}</span>'
         band_div, band_txt, conf_line = "", "", ""
@@ -700,6 +827,9 @@ with tab_main:
                          "정상으로 판단했지만 95% 범위가 기준선에 걸쳐 있어요. 가까운 날짜도 확인해 주세요.")
             badges += " " + c_chip
             conf_line = f'<div class="cline">{c_msg}</div>'
+        else:
+            badges += ' <span class="chip" style="background:#F2F4F6; color:#6B7684;">신뢰도 평가 불가</span>'
+            conf_line = '<div class="cline">95% 신뢰 범위를 계산할 수 없어 신뢰도와 단계는 평가 불가예요.</div>'
         result_line = ""
         if obs_visible and not np.isnan(obs_val):
             real = obs_val >= 1000
@@ -714,14 +844,14 @@ with tab_main:
         <div class="card hero">
           <div style="display:flex; justify-content:space-between; align-items:center;">
             <span class="label">{kdate(target, True)} · 칠서</span>
-            <span class="chip" style="background:{chip_bg}; color:{accent};">● {status}</span>
+            <span class="chip" style="background:{chip_bg}; color:{chip_fg};">● {status}</span>
           </div>
           <div class="big" style="color:{fg};">{headline}</div>
-          <div class="desc">3일 뒤 유해남조류가 1,000 cells/mL 이상일지 예측했어요</div>
+          <div class="desc">예측 판정 <b>{"위험" if risk else "정상"}</b> · 3일 뒤 유해남조류가 1,000 cells/mL 이상일지 예측했어요</div>
           <div style="margin-top:12px; display:flex; gap:6px; flex-wrap:wrap;">{badges}</div>
           <div class="gauge">{band_div}<div class="fill" style="width:{score*100:.0f}%; background:{accent};"></div>
             <div class="mark" style="left:calc({THR*100:.1f}% - 1px);"></div></div>
-          <div class="gscale"><span>위험 신호 <b style="color:{INK}">{score:.2f}</b>{band_txt}</span><span>경보 기준 {THR:.2f}</span></div>
+          <div class="gscale"><span>위험 신호 <b style="color:{INK}">{score:.2f}</b>{band_txt}</span><span>경보 기준 {THR_TXT}</span></div>
           {conf_line}{result_line}
           <div class="foot"><span style="font-size:16px;">{p_ico}</span>
             <div><b>{p_title}</b><br>{p_desc}</div></div>
@@ -772,11 +902,11 @@ with tab_main:
 
     # ===== 3줄: 30일 흐름 | 시민 안내 =====
     html('<div style="height:18px"></div>')
-    col_chart, col_tip = st.columns([1.55, 1], gap="large")
+    col_chart = st.container()
     with col_chart:
         days = pd.date_range(max(first_day, target - pd.Timedelta(days=29)), target)
         s30 = predict_dates(days)
-        fig, ax = plt.subplots(figsize=(8.4, 3.45))
+        fig, ax = plt.subplots(figsize=(12.6, 3.45))
         y = np.asarray(s30, float)
         bands = [ci_of(d) for d in days]
         if all(b is not None for b in bands):   # 95% 신뢰 범위 (부트스트랩)
@@ -787,7 +917,7 @@ with tab_main:
         ax.fill_between(days, THR, y, where=y < THR, interpolate=True, color=BLUE, alpha=.12, lw=0, zorder=1)
         ax.plot(days, y, color=INK, lw=2.6, zorder=3, solid_capstyle="round")
         ax.axhline(THR, color=RED, lw=1.3, ls=(0, (5, 4)), zorder=2)
-        ax.text(days[-1] + pd.Timedelta(hours=12), THR, f" 경보 기준\n {THR:.2f}", color=RED, fontsize=10,
+        ax.text(days[-1] + pd.Timedelta(hours=12), THR, f" 경보 기준\n {THR_TXT}", color=RED, fontsize=10,
                 va="center", ha="left", fontweight="bold")
         # 고른 날짜 강조
         ax.scatter([target], [score], s=120, color=accent, zorder=5, edgecolor="white", linewidth=2.5)
@@ -821,20 +951,10 @@ with tab_main:
              f'<div class="eqimg"><img src="data:image/png;base64,{fig_b64(fig)}"></div>'
              f'<div class="note" style="margin-top:2px;">{legend or "&nbsp;"}</div></div>')
 
-    with col_tip:
-        if risk:
-            tips = [("🚫", "강물에 닿는 활동은 피해 주세요", "물놀이 · 수상레저 · 맨손 낚시"),
-                    ("🐕", "반려동물이 강물을 마시지 않게", "녹조 낀 물가에 가까이 가지 않게"),
-                    ("🧼", "닿았다면 깨끗한 물로 씻어 주세요", "가렵거나 따가우면 진료를 받아 보세요")]
-        else:
-            tips = [("😊", "녹조 걱정은 크지 않아요", "물이 초록빛이면 접촉은 피해 주세요"),
-                    ("📅", "여름·가을엔 빨리 바뀌어요", "가까운 날짜도 함께 확인해 보세요"),
-                    ("🌡️", "더운 날이 이어지면 다시 확인", "수온이 오르면 녹조가 빨리 늘어요")]
-        tips.append(("🔎", "공식 조류경보는 물환경정보시스템", "이 화면은 대학 수업 연구 시연이에요"))
-        html('<div class="card eqh" style="margin-bottom:0;"><div class="ctitle">이럴 땐 이렇게 해요</div>'
-             '<div class="spread">' + "".join(
-            f'<div class="row"><div class="ico">{i}</div><div><div class="t" style="font-size:15px;">{t}</div>'
-            f'<div class="s">{d}</div></div></div>' for i, t, d in tips) + "</div></div>")
+    # ===== 4줄: 3일 전 선제 대응 매뉴얼 (MBB 3단계) + 원인별 한 줄 처방 (SHAP) =====
+    html('<div class="h2">3일 전 선제 대응 매뉴얼</div>')
+    html(manual_html(stage))
+    html(driver_html(pick_driver(contrib), x))
 
     html('<div style="height:18px"></div>')
     with st.expander("녹조(유해남조류)가 뭐예요?"):
@@ -876,7 +996,7 @@ with tab_info:
         a = s_ >= THR - 1e-9          # CSV 저장 시 소수점 끝자리 오차 보정
         tp, fn = int((a & (y == 1)).sum()), int((~a & (y == 1)).sum())
         fp, tn = int((a & (y == 0)).sum()), int((~a & (y == 0)).sum())
-        f = lambda t: "-" if np.isnan(t[0]) else f"{t[0]:.2f} ({t[1]:.2f}~{t[2]:.2f})"
+        f = lambda t: "평가 불가" if np.isnan(t[0]) else f"{t[0]:.2f} ({t[1]:.2f}~{t[2]:.2f})"
         row = {"기간": label, "건수": len(y), "실제 위험": int(y.sum()), "잡은 위험일": tp, "놓친 위험일": fn,
                "오경보": fp, "탐지율 (95% 범위)": f(wilson(tp, tp + fn)),
                "정상일 중 경보 비율 (95% 범위)": f(wilson(fp, fp + tn)),
@@ -891,26 +1011,35 @@ with tab_info:
                     n_, k_ = int(m.sum()), int(y[m].sum())
                     conf_rows.append({"기간": label, "판정": lab, "신뢰도": "높음" if hi_conf else "낮음(경계)",
                                       "건수": n_, "실제 위험": k_,
-                                      "실제 위험 비율": "-" if n_ == 0 else f"{k_ / n_:.2f}"})
-        return row, conf_rows
+                                      "실제 위험 비율": "평가 불가" if n_ == 0 else f"{k_ / n_:.2f}"})
+        # 경보를 낸 날 중 실제로는 위험이 아니었던 비율(오경보율)의 윌슨 95% 범위를 한 줄로 풀어 쓴다
+        p_, l_, u_ = wilson(fp, tp + fp)
+        if np.isnan(p_):
+            line = f"{label}: 경보를 발령한 날이 없어 기대 오경보율은 <b>평가 불가</b>입니다."
+        else:
+            line = (f"{label} 기준 경보 발령 시 기대 오경보율의 95% 범위는 <b>{l_ * 100:.1f}%~{u_ * 100:.1f}%</b>입니다 "
+                    f'<span style="color:{SUB}">(경보 {tp + fp}일 중 {fp}일이 실제로는 위험이 아니었어요 · 관측 {p_ * 100:.1f}%)</span>')
+        return row, conf_rows, line
 
-    rows, crow = [], []
+    rows, crow, lines = [], [], []
     oo = validation_oof()
     if len(oo):
-        r_, c_ = score_row("2020~2023 검증", oo[fm.TARGET].to_numpy().astype(int), oo["score"].to_numpy(),
-                           oo["target_date"])
-        rows.append(r_); crow += c_
+        r_, c_, l_ = score_row("2020~2023 검증", oo[fm.TARGET].to_numpy().astype(int), oo["score"].to_numpy(),
+                               oo["target_date"])
+        rows.append(r_); crow += c_; lines.append(l_)
     test = full[full["split"] == TEST_SPLIT] if "split" in full.columns else full.iloc[0:0]
     if len(test):
         ts = predict(model, FEATS, test[FEATS].to_dict("records"))[0]
         ty = test[fm.TARGET].to_numpy().astype(int)
-        r_, c_ = score_row("2026 독립 테스트", ty, ts, test["target_date"])
-        rows.append(r_); crow += c_
+        r_, c_, l_ = score_row("2026 독립 테스트", ty, ts, test["target_date"])
+        rows.append(r_); crow += c_; lines.append(l_)
     if rows:
         html('<div class="h2">검증 vs 독립 테스트</div>'
              '<div class="sub" style="margin:-4px 0 12px;">같은 경보 기준으로 채점했어요 · 2024~2025 참고 기간은 채점하지 않아요 · '
              '괄호는 윌슨 95% 범위</div>')
-        st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
+        html('<div class="card" style="margin-bottom:10px;"><div class="label">기대 오경보율 한 줄 요약 (윌슨 95% 범위)</div>'
+             + "".join(f'<div style="font-size:15.5px; margin-top:8px; line-height:1.6;">{l}</div>' for l in lines) + '</div>')
+        st.dataframe(clean_df(pd.DataFrame(rows)), hide_index=True, width="stretch")
         if len(test):
             n_miss = int(test[FEATS].isna().any(axis=1).sum())
             html(f'<div class="note">2026 테스트는 {len(test)}건(실제 위험 {int(ty.sum())}건)이라 범위가 넓어요. '
@@ -921,7 +1050,7 @@ with tab_info:
         html('<div class="h2">신뢰도별 실제 위험 비율</div>'
              '<div class="sub" style="margin:-4px 0 12px;">신뢰도 높은 위험의 실제 위험 비율이 높고, 신뢰도 높은 정상의 비율이 낮을수록 '
              '신뢰도 구분이 의미 있어요</div>')
-        st.dataframe(pd.DataFrame(crow), hide_index=True, width="stretch")
+        st.dataframe(clean_df(pd.DataFrame(crow)), hide_index=True, width="stretch")
 
     # ---------- 2026 테스트 날짜별 ----------
     if len(test):
@@ -939,7 +1068,7 @@ with tab_info:
             if sel.any():
                 ax.scatter(td[sel], ts[sel], marker=mk, s=60, color=col, zorder=4, label=f"{lab} {int(sel.sum())}",
                            edgecolor="white", linewidth=1)
-        ax.set_ylim(0, 1.02); ax.set_yticks([0, THR, 1]); ax.set_yticklabels(["0", f"기준 {THR:.2f}", "1"])
+        ax.set_ylim(0, 1.02); ax.set_yticks([0, THR, 1]); ax.set_yticklabels(["0", f"기준 {THR_TXT}", "1"])
         style_axes(ax)
         import matplotlib.dates as mdates
         ax.xaxis.set_major_formatter(mdates.DateFormatter("%m월"))
@@ -955,9 +1084,9 @@ with tab_info:
                             "F1", "FPR", "AP"] if c in tm.columns]
         html('<div class="h2">2026 테스트 · 계절별 (test.py 결과)</div>'
              '<div class="sub" style="margin:-4px 0 12px;">여름·9월은 실제 위험만 있어서 정상 구분 능력은 겨울·봄 결과로 봐야 해요</div>')
-        st.dataframe(tm[keep].rename(columns={"group": "구분", "n": "건수", "positive": "실제 위험",
-                                              "negative": "실제 정상", "TP": "탐지", "FN": "미탐",
-                                              "FP": "오경보", "TN": "정상 적중"}).round(3),
+        st.dataframe(clean_df(tm[keep].rename(columns={"group": "구분", "n": "건수", "positive": "실제 위험",
+                                                       "negative": "실제 정상", "TP": "탐지", "FN": "미탐",
+                                                       "FP": "오경보", "TN": "정상 적중"}).round(3)),
                      hide_index=True, width="stretch")
 
     if len(oo):
@@ -971,15 +1100,15 @@ with tab_info:
             yr_rows.append({"연도": yr_, "건수": len(g), "잡은 위험일": tp_, "놓친 위험일": fn_, "오경보": fp_,
                             "탐지율": round(tp_ / max(tp_ + fn_, 1), 3),
                             "정상일 중 경보 비율": round(fp_ / max(fp_ + tn_, 1), 3)})
-        st.dataframe(pd.DataFrame(yr_rows), hide_index=True, width="stretch")
+        st.dataframe(clean_df(pd.DataFrame(yr_rows)), hide_index=True, width="stretch")
 
     html('<div class="h2">해석할 때 주의할 점</div><div class="card"><div class="note" style="margin:0;color:#4E5968;">'
          '· 2026 테스트는 1~9월 중 남조류 수치가 공개된 44건이에요. 10~12월은 포함되지 않아요.<br>'
          '· 입력 일부가 비어 있는 4건은 채우지 않고 XGBoost의 결측 처리로 예측했어요.<br>'
          '· 수질 실제 공개시각 미확인, 2026 유량 잠정값, 2025년 칠서 채수지점 변경을 고려해야 해요. 후향적 새 연도 평가이며 실시간 운영 실증은 아니에요.<br>'
          '· 위험 신호와 95% 범위는 보정된 발생확률이 아니에요. SHAP 근거는 예측 기여이며 인과관계 증명이 아니에요.<br>'
-         f'· 경보 기준 {THR:.6f}은 2026 예측 전에 2016~2023 자료로 고정한 값이에요'
-         + (f' (이전 실행본 {cfg["previous_run_threshold"]:.6f}과 다르며, 2026 결과로 고른 값이 아니에요)'
+         f'· 경보 기준 {THR_TXT}은 2026 예측 전에 2016~2023 자료로 고정한 값이에요'
+         + (f' (이전 실행본 {cfg["previous_run_threshold"]:.3f}과 다르며, 2026 결과로 고른 값이 아니에요)'
             if cfg.get("previous_run_threshold") else '') + '.</div></div>')
 
     def show(fname, cap):
