@@ -183,11 +183,17 @@ section[data-testid="stSidebar"] {{ background: #fff; }}
                   box-shadow: 0 1px 2px rgba(0,0,0,.03), 0 8px 24px rgba(0,0,0,.04); margin-bottom: 8px; }}
 .st-key-datebar label p {{ font-size: 13px !important; color: {SUB} !important; font-weight: 600 !important; }}
 .st-key-manualjump {{ margin: 22px 0 10px; }}
-.st-key-manualjump button {{ min-height: 0 !important; height: 24px !important; padding: 0 8px !important; border-radius: 999px !important; }}
-.st-key-manualjump button p {{ font-size: 11px !important; font-weight: 600 !important; line-height: 1.2 !important; }}
-.st-key-manualjump button[kind="primary"], .st-key-manualjump button[data-testid="stBaseButton-primary"] {{ background: #FFF0F1 !important; border: 1px solid {RED} !important; }}
-.st-key-manualjump button[kind="primary"] p, .st-key-manualjump button[data-testid="stBaseButton-primary"] p {{ color: {RED} !important; }}
 .st-key-manualjump .h2 {{ margin: 0 !important; }}
+.st-key-manualjump button {{ min-height: 0 !important; min-width: 0 !important; width: 14px !important; height: 14px !important;
+    padding: 0 !important; border-radius: 50% !important; border: 0.5px solid rgba(0,0,0,.18) !important; box-shadow: none !important; }}
+.st-key-manualjump button p {{ font-size: 0 !important; }}
+.st-key-jump_r button {{ background: #FF5F57 !important; }}
+.st-key-jump_y button {{ background: #FEBC2E !important; }}
+.st-key-jump_g button {{ background: #28C840 !important; }}
+.st-key-manualjump button:hover {{ filter: brightness(.92); }}
+.st-key-jump_r button[kind="primary"], .st-key-jump_r button[data-testid="stBaseButton-primary"] {{ box-shadow: 0 0 0 2px #fff, 0 0 0 3.5px #FF5F57 !important; }}
+.st-key-jump_y button[kind="primary"], .st-key-jump_y button[data-testid="stBaseButton-primary"] {{ box-shadow: 0 0 0 2px #fff, 0 0 0 3.5px #FEBC2E !important; }}
+.st-key-jump_g button[kind="primary"], .st-key-jump_g button[data-testid="stBaseButton-primary"] {{ box-shadow: 0 0 0 2px #fff, 0 0 0 3.5px #28C840 !important; }}
 .footer {{ margin-top: 40px; padding: 22px 0 10px; border-top: 1px solid #E5E8EB; font-size: 12.5px;
           color: {SUB}; line-height: 1.8; }}
 .footer b {{ color: #4E5968; }}
@@ -958,14 +964,14 @@ with tab_main:
              f'<div class="note" style="margin-top:2px;">{legend or "&nbsp;"}</div></div>')
 
     # ===== 4줄: 3일 전 선제 대응 매뉴얼 (MBB 3단계) + 원인별 한 줄 처방 (SHAP) =====
-    JUMPS = [("2026년 8월", "2026-08-10"), ("2026년 6월", "2026-06-01"), ("2022년 3월", "2022-03-14")]  # 발표용 바로가기
+    JUMPS = [("r", "2026년 8월", "2026-08-10"), ("y", "2026년 6월", "2026-06-01"), ("g", "2022년 3월", "2022-03-14")]  # 발표용 바로가기 (신호등 원)
     with st.container(key="manualjump"):
-        mt, m1, m2, m3, _sp = st.columns([2.3, 0.62, 0.62, 0.62, 4.4], vertical_alignment="center", gap="small")
+        mt, m1, m2, m3, _sp = st.columns([2.3, 0.2, 0.2, 0.2, 6.0], vertical_alignment="center", gap="small")
         with mt:
             html('<div class="h2">3일 전 선제 대응 매뉴얼</div>')
-        for col_, (lab_, ds_) in zip((m1, m2, m3), JUMPS):
+        for col_, (k_, lab_, ds_) in zip((m1, m2, m3), JUMPS):
             with col_:
-                st.button(lab_, key="jump_" + ds_, on_click=set_date, args=(pd.Timestamp(ds_).date(),), width="stretch",
+                st.button(" ", key="jump_" + k_, help=lab_, on_click=set_date, args=(pd.Timestamp(ds_).date(),),
                           type="primary" if st.session_state.target_date == pd.Timestamp(ds_).date() else "secondary")
     html(manual_html(stage))
     html(driver_html(pick_driver(contrib), x))
