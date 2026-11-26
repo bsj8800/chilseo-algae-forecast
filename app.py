@@ -182,6 +182,10 @@ section[data-testid="stSidebar"] {{ background: #fff; }}
 .st-key-datebar {{ background: #fff; border-radius: 22px; padding: 14px 20px 18px;
                   box-shadow: 0 1px 2px rgba(0,0,0,.03), 0 8px 24px rgba(0,0,0,.04); margin-bottom: 8px; }}
 .st-key-datebar label p {{ font-size: 13px !important; color: {SUB} !important; font-weight: 600 !important; }}
+.st-key-manualjump {{ margin: 22px 0 10px; }}
+.st-key-manualjump button {{ min-height: 0 !important; padding: 3px 12px !important; border-radius: 999px !important; }}
+.st-key-manualjump button p {{ font-size: 12.5px !important; font-weight: 600 !important; line-height: 1.5 !important; }}
+.st-key-manualjump .h2 {{ margin: 0 !important; }}
 .footer {{ margin-top: 40px; padding: 22px 0 10px; border-top: 1px solid #E5E8EB; font-size: 12.5px;
           color: {SUB}; line-height: 1.8; }}
 .footer b {{ color: #4E5968; }}
@@ -952,7 +956,15 @@ with tab_main:
              f'<div class="note" style="margin-top:2px;">{legend or "&nbsp;"}</div></div>')
 
     # ===== 4줄: 3일 전 선제 대응 매뉴얼 (MBB 3단계) + 원인별 한 줄 처방 (SHAP) =====
-    html('<div class="h2">3일 전 선제 대응 매뉴얼</div>')
+    JUMPS = [("2026년 8월", "2026-08-10"), ("2026년 6월", "2026-06-01"), ("2022년 3월", "2022-03-14")]  # 발표용 바로가기
+    with st.container(key="manualjump"):
+        mt, m1, m2, m3, _sp = st.columns([2.3, 1.0, 1.0, 1.0, 3.2], vertical_alignment="center", gap="small")
+        with mt:
+            html('<div class="h2">3일 전 선제 대응 매뉴얼</div>')
+        for col_, (lab_, ds_) in zip((m1, m2, m3), JUMPS):
+            with col_:
+                st.button(lab_, key="jump_" + ds_, on_click=set_date, args=(pd.Timestamp(ds_).date(),), width="stretch",
+                          type="primary" if st.session_state.target_date == pd.Timestamp(ds_).date() else "secondary")
     html(manual_html(stage))
     html(driver_html(pick_driver(contrib), x))
 
